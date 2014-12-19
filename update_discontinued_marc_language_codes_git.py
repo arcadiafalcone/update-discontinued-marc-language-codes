@@ -1,7 +1,7 @@
 from pymarc import *
 from datetime import datetime
 
-## Script by Arcadia Falcone, arcadia.falcone at gmail.com, updated 12/19/2014
+## Script by Arcadia Falcone, arcadiafalcone at gmail, updated 12/19/2014
 ## Validates and updates language codes in MARC records:
 ## -Checks language codes in 008 and 041 against valid MARC language codes
 ## -If code in 008 or 041 is discontinued, updates to current code
