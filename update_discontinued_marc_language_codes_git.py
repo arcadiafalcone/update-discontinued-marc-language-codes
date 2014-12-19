@@ -1,4 +1,34 @@
-from pymarc import MARCReader, Field, Record, MARCWriter
+from pymarc import *
+from datetime import datetime
+
+## Script by Arcadia Falcone, arcadia.falcone at gmail.com, updated 12/19/2014
+## Validates and updates language codes in MARC records:
+## -Checks language codes in 008 and 041 against valid MARC language codes
+## -If code in 008 or 041 is discontinued, updates to current code
+## -Checks that subfield codes in 041 are valid
+## -If multiple language codes are concatenated, separates each into its own 
+##  instance of the subfield, maintaining the original order
+
+def openFilesIO():
+    """Select input file, and create updated MARC file and error log text file
+    for output, with file names based on the input file selected."""
+    import os
+    import Tkinter, tkFileDialog
+    root = Tkinter.Tk()
+    root.withdraw()
+    fileselect = tkFileDialog.askopenfilename()
+    filepath = os.path.dirname(fileselect)
+    filename = os.path.basename(fileselect)
+    basename = os.path.splitext(filename)[0]
+    in_file = os.path.abspath(fileselect)
+    out_file_base = filepath + '/' + basename
+    out_file = out_file_base + '_out.mrc'
+    o = open(out_file, 'w')
+    o.close()
+    error_file = out_file_base + '_error.txt'
+    log_file = out_file_base + '_log.txt'
+    blank_file = out_file_base + '_blank008.txt'
+    return in_file, out_file, error_file, log_file, blank_file
 
 def repeatFieldTest(my_record, my_field_tag):
     """Test if field occurs more than once in record."""
@@ -19,15 +49,24 @@ def getSubfieldsInOrder(my_field):
         subfield_pairs[i][1] = sub_string[1:]
     return subfield_pairs
 
-def writeError(error_type):
-    """Write record ID and error type to error log file."""
-    line_out = record_id + '\t' + error_type + '\n'
-    error_log.write(line_out)
+def writeError(error_type, field_tag, error_value, *fh):
+    """Write record ID and error data to error log file. Optional fh argument 
+    indicates filehandle to write to if other than default error log.
+    Used in this script to write null 008 errors to separate log."""
+    if fh:
+        log_file = fh[0]
+    else:
+        log_file = error_log
+        global error_log_count
+        error_log_count += 1
+    output = [record_id, field_tag, errors[error_type], error_value]
+    line_out = '\t'.join(output) + '\n'
+    log_file.write(line_out)
 
 
 ### Variables ###
 
-# oldcode:newcode
+# Discontinued codes and their replacements; oldcode:newcode
 codedict = {'cam':'khm', 'esp':'epo', 'eth':'gez', 'far':'fao', 'fri':'fry', 
 'gae':'gla', 'gag':'glg', 'gal':'orm', 'gua':'grn', 'int':'ina', 'iri':'gle', 
 'kus':'kos', 'lan':'oci', 'lap':'smi', 'max':'glv', 'mla':'mlg', 'mol':'rum', 
@@ -88,23 +127,42 @@ lang_codes = ['aar', 'abk', 'ace', 'ach', 'ada', 'ady', 'afa', 'afh', 'afr',
 # codedict)
 lang_codes_disc = ['esk']
 
-
-### Files ###
-records_in = 'input.mrc'
-records_out = 'output.mrc'
-error = 'error_log.txt'
-
+# Define errors
+errors = {
+            'multiple': 'Multiple instances of field in record', 
+            'updatefail': 'Code cannot be updated',
+            'invalidsub': 'Invalid subfield delimiter',
+            'invalidcode': 'Invalid language code',
+            'not3char': 'Non-3-letter code',
+            'blank': 'Blank code'
+}
 
 ### Process ###
 
-# Open .mrc files
+# Record start time
+start_time = datetime.now()
+
+# Select input and create output files
+records_in, records_out, error, process, blank = openFilesIO()
+
+print 'Processing %s...' % records_in
+
+# Open .mrc files and error log file
 reader = MARCReader(file(records_in, 'r'), to_unicode=True)
 writer = MARCWriter(file(records_out, 'w'))
 error_log = open(error, 'w')
+process_log = open(process, 'w')
+blank_log = open(blank, 'w')
+
+headers = ['record_id', 'field_tag', 'error_type', 'error_value']
+error_log.write('\t'.join(headers) + '\n')
+blank_log.write('\t'.join(headers) + '\n')
 
 record_in_count = 0
 record_out_count = 0
 record_error_count = 0
+blank_008_count = 0
+error_log_count = 0
 
 for record in reader:
     record_in_count += 1
@@ -117,29 +175,36 @@ for record in reader:
 # Test for multiple instances of 008 or 041 field
 # If either is true, write to error log and go on to next record
     if record['008'] and repeatFieldTest(record, '008') == True:
-        writeError('Multiple 008 fields in record')
+        writeError('multiple', '008', '')
         record_error_count += 1
         continue
     if record['041'] and repeatFieldTest(record, '041') == True:
-        writeError('Multiple 041 fields in record')
+        writeError('multiple', '041', '')
         record_error_count += 1
         continue
 
 # 008
 # Assign 008 language code to variable
     lang_008 = record['008'].value()[35:38]
+# Trim leading and trailing spaces
+    lang_008 = lang_008.strip()
+# Check for blank/null
+    if lang_008 == '' or lang_008 == '|||':
+        writeError('blank', '008', lang_008, blank_log)
+        blank_008_count += 1
+        set_error = True
 # Replace old code with new in 008 field
-    if lang_008 in codedict.keys():
+    elif lang_008 in codedict.keys():
         new008 = record['008'].value()[:35] + codedict[lang_008] + record['008'].value()[38:]
         record['008'].data = new008
         set_update = True
 # Test for discontinued code without replacement and write to error log if true
     elif lang_008 in lang_codes_disc:
-        writeError('Code %s in 008 field cannot be updated' % lang_008)
+        writeError('updatefail', '008', lang_008)
         set_error = True
 # Test for invalid code and write to error log if true
     elif lang_008 not in lang_codes:
-        writeError('Invalid language code %s in 008 field' % lang_008)
+        writeError('invalidcode', '008', lang_008)
         set_error = True
 
 # 041
@@ -158,19 +223,27 @@ for record in reader:
             value = pair[1]
 # Test for delimiters not in subfields041 list and write to error log if true
             if sub not in subfields041:
-                writeError('Invalid subfield delimiter %s in 041 field' % sub)
+                writeError('invalidsub', '041', sub)
                 set_error = True
+# Trim leading and trailing spaces
+            value = value.strip()
+# Delete final period
+            value = value.rstrip('.')
 # Test for extra characters in value and write to error log if true
             if len(value) % 3 != 0:
-                writeError('Non-3-letter code %s in 041 field' % value)
+                writeError('not3char', '041', value)
                 set_error = True
+                continue
+# If length of language code string is greater than 3, set update to True
+            if len(value) > 3:
+                set_update = True
+# Change upper case to lower case
+            if value != value.lower():
+                value = value.lower()
+                set_update = True
 # Break value string into 3-letter codes
             for n in range(0, len(value)-2, 3):
                 code = value[n:n+3]
-# Change upper case to lower case
-                if code.isupper():
-                    code = code.lower()
-                    set_update = True
 # Replace old code with new and add updated subfield to new 041 field
                 if code in codedict.keys():
                     newcode = codedict[code]
@@ -178,11 +251,11 @@ for record in reader:
                     set_update = True
 # Test for discontinued code without replacement and write to error log if true
                 elif code in lang_codes_disc:
-                    writeError('Code %s in 041 field cannot be updated' % code)
+                    writeError('updatefail', '041', code)
                     set_error = True
 # Test for invalid code and write to error log if true
                 elif code not in lang_codes:
-                    writeError('Invalid language code %s in 041 field' % code)
+                    writeError('invalidcode', '041', code)
                     set_error = True
 # Add existing valid subfield to new 041 field
                 else:
@@ -197,10 +270,25 @@ for record in reader:
     elif set_error == True:
         record_error_count += 1
 
+# Write summary of results to process log
+stop_time = datetime.now()
+process_log.write('Process started: %s' % start_time + '\n')
+process_log.write('Process completed: %s' % stop_time + '\n\n')
+process_log.write('%d records processed.' % record_in_count + '\n')
+process_log.write('%d records updated.' % record_out_count + '\n')
+process_log.write('%d records with errors.' % record_error_count + '\n')
+process_log.write('%d records with null 008 language code.' % blank_008_count + '\n')
+process_log.write('%d errors logged for manual review.' % error_log_count + '\n')
+
+# Write summary of results to console
 print "%d records processed." % (record_in_count)
 print "%d records updated." % (record_out_count)
-print "%d records with errors." % (record_error_count)
+print "%d records with errors, including:" % (record_error_count)
+print "   %d records with null 008." % (blank_008_count)
+print "   %d records for manual review." % (error_log_count)
 
 # Close files
 writer.close()
 error_log.close()
+process_log.close()
+blank_log.close()
