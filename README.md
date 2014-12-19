@@ -3,8 +3,8 @@ Validation and Update Tool for Language Codes in MARC Records
 
 Functionality
 -------------
-* If language codes are concatenated by subfield in the 041, separates into individual subfields while maintaining original order. Example: $a engfre $h ger $b russpa becomes $a eng $a fre $h ger $b rus $b spa. If the concatenated string is not divisible by 3, writes data to error log.
---> Separating the codes enables SolrMarc to index these values.
+* If language codes are concatenated by subfield in the 041, separates into individual subfields while maintaining original order. Example: $a engfre $h ger $b russpa becomes $a eng $a fre $h ger $b rus $b spa. If the concatenated string is not divisible by 3, writes data to error log.  
+>> Separating the codes enables SolrMarc to index these values.
 * Normalizes to lower case, removes any leading and trailing spaces, and deletes any trailing period from the language code string before validating.
 * Checks language codes in the 008 and 041 fields against list of valid MARC language codes. If code is invalid, writes data to error log. If code is discontinued, updates to current code.
 * Checks subfield codes in the 041 field against list of valid subfields for that field. If code is invalid, writes data to error log.
@@ -38,5 +38,5 @@ Dependences
 
 Credit
 ------
-Script by Arcadia Falcone, arcadiafalcone at gmail
+Script by Arcadia Falcone, arcadiafalcone at gmail  
 Updated 2014-12-19
